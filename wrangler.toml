@@ -1,0 +1,24 @@
+name = "thetower-worker"
+type = "javascript"
+zone_id = ""
+account_id = "fd2cba8877a5be60badd9a7261b01cc6"
+route = ""
+workers_dev = true
+kv_namespaces = [ 
+    { binding = "urls", id = "aaf2f8d979ba45c6acfc7e59aff6c2d3" },
+    { binding = "RESIDENCES", id = "d04c11edcbad4bcdb94856a339ae270c" },
+    { binding = "RESIDENCESUPDATES", id = "1aa77ff638b04dae8b36e664892b959d" },
+    { binding = "OWNERS", id = "7ae3211ed16e48e88ff70e8b9c12701e" },
+    { binding = "BILLBOARDS", id = "4626f81716594dc2ae279ab94d89fded" },
+    { binding = "SOCIALCARDS", id = "a4b0a275ebfd42329b0dfa96f36a9036" },
+    { binding = "NFTS", id = "c1003e4bde29447d990966bf3a6ca43d" }
+]
+
+[build]
+command = "npm install && npm run build"
+[build.upload]
+format = "service-worker"
+
+# [secrets]
+# IMAGE_API_KEY
+# RUST_WORKER_SEC_KEY
