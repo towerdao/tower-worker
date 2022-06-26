@@ -8,7 +8,7 @@
       "esnext"
     ],
     "alwaysStrict": true,
-    "strict": true,
+    "strict": false,
     "preserveConstEnums": true,
     "moduleResolution": "node",
     "sourceMap": true,

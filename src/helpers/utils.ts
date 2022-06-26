@@ -1,4 +1,4 @@
-export function BigIntWithBase(value: string, radix: number) {
+export function BigIntWithBase(value: string, radix: number): bigint {
     var size = 10,
         factor = BigInt(radix ** size),
         i = value.length % size || size,
@@ -9,43 +9,13 @@ export function BigIntWithBase(value: string, radix: number) {
     return parts.reduce((r, v) => r * factor + BigInt(parseInt(v, radix)), 0n);
 }
 
-export function padUint8Array(array: Uint8Array, length: number, fill: any) {
+export function padUint8Array(array: Uint8Array, length: number, fill: any): Uint8Array {
     return length > array.length ? new Uint8Array([...new Uint8Array(length - array.length).fill(fill), ...array]) : array;
 }
 
-export function Uint8ArrayFromBigInt(num: bigint) {
-    var hex = BigInt(num).toString(16);
-    if (hex.length % 2) { hex = '0' + hex; }
-
-    var len = hex.length / 2;
-    var u8 = new Uint8Array(len);
-
-    var i = 0;
-    var j = 0;
-    while (i < len) {
-        u8[i] = parseInt(hex.slice(j, j + 2), 16);
-        i += 1;
-        j += 2;
-    }
-
-    return u8;
-}
-
-export function Uint8ArrayFromBase64(base64: string) {
-    var binary_string = atob(base64);
-    var len = binary_string.length;
-    var bytes = new Uint8Array(len);
-    for (var i = 0; i < len; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
-    }
-    return bytes;
-}
-
-export async function sha256(msgBuffer: Uint8Array) {
+export async function sha256(msgBuffer: Uint8Array): Promise<string> {
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
-    // convert ArrayBuffer to Array
     const hashArray = Array.from(new Uint8Array(hashBuffer))
-    // convert bytes to hex string
     const hashHex = hashArray
         .map((b) => ('00' + b.toString(16)).slice(-2))
         .join('')

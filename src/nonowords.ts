@@ -1,4 +1,4 @@
-export const nonoWords: string[] = [
+export const NONOWORDS: string[] = [
   '4r5e',
   '5h1t',
   '5hit',

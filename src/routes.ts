@@ -9,35 +9,18 @@ import type { Handler } from 'worktop'
 
 import { cloudflareFromId } from './cloudflarefromid'
 import { idFromMintAddr, mintAddrFromId } from './mintaddrfromid'
-import { nonoWords } from './nonowords'
-import {
-  fetchRPC,
-  ownedTokenMintAddrs,
-  ownedTwitterHandle,
-  getNFTMetadataByMintAddress,
-} from './helpers/solana'
+import { ownedTokenMintAddrs, ownedTwitterHandle, getNFTMetadataByMintAddress, ownerAddrFromMintAddr } from './helpers/solana'
 import { sign } from 'tweetnacl'
 
+import { NONOWORDS } from './nonowords'
+import { MARKETPLACES } from './marketplaces'
+
 import { checkSignerAddr } from './helpers/eth-lite';
+import { within, MINUTE } from './helpers/time';
+import { U8ArrFromB64Str, B58StrFromB64Str, UTF8StrFromB64Str } from './helpers/convert';
 
 declare const IMAGE_API_KEY: string;
 declare const RUST_WORKER_SEC_KEY: string;
-
-//eslint-disable-next-line @typescript-eslint/ban-ts-comment
-//@ts-ignore
-import * as bs58 from 'base58-universal';
-
-const FromBase64 = function (str: any) {
-  return atob(str)
-    .split('')
-    .map(function (c) {
-      return c.charCodeAt(0)
-    })
-}
-
-const MINUTE = 1000 * 60
-const inSpan = (date: number, span: number) =>
-  Date.now() + span > date && date > Date.now() - span
 
 export const save: Handler = async function (req, res) {
   const { story: storyParam, room: roomParam } = req.params
@@ -46,18 +29,16 @@ export const save: Handler = async function (req, res) {
 
   const { encodedMessage, signature, publicKey } = await req.body() as any
 
-  const ownerAddr = bs58.encode(new Uint8Array(FromBase64(publicKey)));
+  const ownerAddr = B58StrFromB64Str(publicKey);
 
   const isVerified = sign.detached.verify(
-    new Uint8Array(FromBase64(encodedMessage)),
-    new Uint8Array(FromBase64(signature)),
-    new Uint8Array(FromBase64(publicKey)),
+    U8ArrFromB64Str(encodedMessage),
+    U8ArrFromB64Str(signature),
+    U8ArrFromB64Str(publicKey),
   )
   if (!isVerified) return res.send(422, { signature: 'invalid' })
 
-  const rawMessage = new TextDecoder('utf8').decode(
-    new Uint8Array(FromBase64(encodedMessage)),
-  )
+  const rawMessage = UTF8StrFromB64Str(encodedMessage);
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -139,19 +120,16 @@ export const save: Handler = async function (req, res) {
   if (story != storyParam) return res.send(422, { story: 'invalid' })
   if (room != roomParam) return res.send(422, { room: 'invalid' })
 
-  if (nonoWords.some((w) => new RegExp(w).test(name.toLowerCase())))
-    return res.send(422, { name: 'hasnonowords' })
+  if (NONOWORDS.some((w) => new RegExp(w).test(name.toLowerCase()))) return res.send(422, { name: 'hasnonowords' })
   if (name.length > 50) return res.send(422, { name: 'toolong' })
 
-  if (nonoWords.some((w) => new RegExp(w).test(bio.toLowerCase())))
-    return res.send(422, { bio: 'hasnonowords' })
+  if (NONOWORDS.some((w) => new RegExp(w).test(bio.toLowerCase()))) return res.send(422, { bio: 'hasnonowords' })
   if (bio && bio.length > 140) return res.send(422, { bio: 'toolong' })
 
   //Temporary tests for just audius support safely
   if ((web3media.length > 1) || (web3media.length == 1 && (web3media[0].type != "audius-playlist" || !web3media[0].id.match(/^[A-Za-z0-9]+$/g)))) return res.send(422, { web3media: 'invalid' })
 
-  if (!inSpan(updated_at, MINUTE))
-    return res.send(422, { updated_at: 'invalid' })
+  if (!within(updated_at, MINUTE)) return res.send(422, { updated_at: 'invalid' })
 
   const ownersNFTMintAddrs = await ownedTokenMintAddrs(ownerAddr);
   if (!ownersNFTMintAddrs.includes(mintAddr)) return res.send(422, { publicKey: 'invalid' })
@@ -250,15 +228,13 @@ export const updateOwner: Handler = async function (req, res) {
   const { encodedMessage, signature, publicKey, ethereum } = await req.body() as any;
 
   const isVerified = sign.detached.verify(
-    new Uint8Array(FromBase64(encodedMessage)),
-    new Uint8Array(FromBase64(signature)),
-    new Uint8Array(FromBase64(publicKey)),
+    U8ArrFromB64Str(encodedMessage),
+    U8ArrFromB64Str(signature),
+    U8ArrFromB64Str(publicKey),
   )
   if (!isVerified) return res.send(422, { signature: 'invalid' })
 
-  const rawMessage = new TextDecoder('utf8').decode(
-    new Uint8Array(FromBase64(encodedMessage)),
-  )
+  const rawMessage = UTF8StrFromB64Str(encodedMessage);
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -282,11 +258,9 @@ export const updateOwner: Handler = async function (req, res) {
 
   if (ethSignerAddr !== ethereumAddr) return res.send(422, { ethsignature: 'invalid' });
 
-  if (!inSpan(updated_at, MINUTE))
-    return res.send(422, { updated_at: 'invalid' })
+  if (!within(updated_at, MINUTE)) return res.send(422, { updated_at: 'invalid' })
 
-  if (ownerParam != bs58.encode(new Uint8Array(FromBase64(publicKey))))
-    return res.send(422, { publicKey: 'invalid' })
+  if (ownerParam != B58StrFromB64Str(publicKey)) return res.send(422, { publicKey: 'invalid' })
 
   const result = await Owner.save({
     ownerAddr: ownerParam,
@@ -313,116 +287,57 @@ export const residencesupdates: Handler = async function (req, res) {
 
   const updateKeys = await ResidenceUpdate.list(yyyy, mm, dd);
   const updates = Object.fromEntries(await Promise.all(updateKeys.map(async (k) => [k, await ResidenceUpdate.find(k)])));
-  
+
   res.send(200, updates)
 }
-
-const MAGICEDENPUBKEY = 'GUfCR9mK6azb9vcpsxgXyj7XRPAKJd4KMHTTVvtncGgp'
-const SOLANARTPUBKEY = '3D49QorJyNaL4rcpiynbuS3pRH4Y7EXEM6v6ZGaqfFGK'
-const EXCHANGEARTPUBKEY = 'BjaNzGdwRcFYeQGfuLYsc1BbaNRG1yxyWs1hZuGRT8J2'
-const ALPHAARTPUBKEY = '4pUQS4Jo2dsfWzt3VgHXy3H6RYnEDd11oWPiaM2rdAPw'
-
-const MARKETPLACES = [
-  MAGICEDENPUBKEY,
-  SOLANARTPUBKEY,
-  EXCHANGEARTPUBKEY,
-  ALPHAARTPUBKEY,
-]
 
 export const metadata: Handler = async function (req, res) {
   try {
     const { story, room } = req.params
 
     const mintAddrFromIdLocal = await mintAddrFromId();
-
-    //const query = Object.fromEntries(req.query)
-    const includeNFTs = true //query.includeNFTs == "false" ? false : true
-
     const id = (parseInt(story) - 1) * 20 + (parseInt(room) - 1)
     const mintAddr = mintAddrFromIdLocal[id]
 
     if (!mintAddr) res.send(500, 'Error finding room')
 
-    const tokenLargestAccounts = (await fetchRPC('getTokenLargestAccounts', [
-      mintAddr,
-      { commitment: 'confirmed' },
-    ])) as any[]
+    const ownerAddr = await ownerAddrFromMintAddr(mintAddr);
 
-    const tokenHolder = tokenLargestAccounts.find(
-      (val) => val.amount == 1,
-    ).address
-
-    const {
-      data: {
-        parsed: {
-          info: { owner: ownerAddr },
+    if (MARKETPLACES[ownerAddr] != null) {
+      return res.send(
+        200,
+        {
+          mintAddr,
+          owner: MARKETPLACES[ownerAddr],
+          ownersResidences: {},
+          floormateResidences: {},
         },
-      },
-    } = (await fetchRPC('getAccountInfo', [
-      tokenHolder,
-      { encoding: 'jsonParsed', commitment: 'confirmed' },
-    ])) as any
-
-    const ownersNFTMintAddrs = await (async () => {
-      if (!includeNFTs || MARKETPLACES.includes(ownerAddr)) return null
-
-      return (await ownedTokenMintAddrs(ownerAddr)).filter(
-        (m: any) => m != mintAddr,
+        { 'Cache-Control': 'public,max-age=60' },
       )
-    })()
+    }
 
-    const owner = MARKETPLACES.includes(ownerAddr)
-      ? {
-        market:
-          ownerAddr == SOLANARTPUBKEY
-            ? 'SOLANART'
-            : ownerAddr == MAGICEDENPUBKEY
-              ? 'MAGICEDEN'
-              : ownerAddr == EXCHANGEARTPUBKEY
-                ? 'EXCHANGEART'
-                : ownerAddr == ALPHAARTPUBKEY
-                  ? 'ALPHAART'
-                  : new Error('How?'),
-      }
-      : ownerAddr
+    const ownersNFTMintAddrs = (await ownedTokenMintAddrs(ownerAddr)).filter((m) => m != mintAddr);
+    const ownerStored = await Owner.find(ownerAddr);
+    const ownersTwitterHandle = await ownedTwitterHandle(ownerAddr);
 
-    const ownerStored = await (async () => {
-      if (MARKETPLACES.includes(ownerAddr)) return null
-
-      return await Owner.find(owner)
-    })()
-
-    const ownersTwitterHandle = await (async () => {
-      if (!includeNFTs || MARKETPLACES.includes(ownerAddr)) return null
-
-      return await ownedTwitterHandle(owner)
-    })()
-
-    const ownersResidences = []
+    const ownersResidences = {}
 
     const idFromMintAddrLocal = await idFromMintAddr();
 
-    if (!MARKETPLACES.includes(ownerAddr)) {
-      for (const ownersNFTMintAddr of ownersNFTMintAddrs ?? []) {
-        if (!idFromMintAddrLocal[ownersNFTMintAddr]) continue
-        ownersResidences.push([
-          ownersNFTMintAddr,
-          await Residence.find(ownersNFTMintAddr),
-        ])
-      }
+    for (const ownersNFTMintAddr of ownersNFTMintAddrs ?? []) {
+      if (!idFromMintAddrLocal[ownersNFTMintAddr]) continue
+      ownersResidences[ownersNFTMintAddr] = await Residence.find(ownersNFTMintAddr)
     }
 
-    const floormateResidences = []
+    const floormateResidences = {}
 
-    if (!MARKETPLACES.includes(ownerAddr)) {
-      for (const floormateRoom of [...new Array(20)].map((_, ind) => ind)) {
-        if (floormateRoom == parseInt(room)) continue
+    for (const floormateRoom of [...new Array(20)].map((_, ind) => ind)) {
+      if (floormateRoom == parseInt(room)) continue
 
-        const floormateId = (parseInt(story) - 1) * 20 + floormateRoom
-        const floormateRoomMintAddr = mintAddrFromIdLocal[floormateId]
+      const floormateId = (parseInt(story) - 1) * 20 + floormateRoom
+      const floormateRoomMintAddr = mintAddrFromIdLocal[floormateId]
 
-        floormateResidences.push([floormateRoom, await Residence.find(floormateRoomMintAddr)])
-      }
+      floormateResidences[floormateRoom] = await Residence.find(floormateRoomMintAddr)
     }
 
     return res.send(
@@ -430,12 +345,12 @@ export const metadata: Handler = async function (req, res) {
       {
         mintAddr,
         residence: await Residence.find(mintAddr),
-        owner,
+        owner: ownerAddr,
         ownerStored,
         ownersNFTMintAddrs,
         ownersTwitterHandle,
-        ownersResidences: Object.fromEntries(ownersResidences),
-        floormateResidences: Object.fromEntries(floormateResidences),
+        ownersResidences,
+        floormateResidences,
       },
       { 'Cache-Control': 'public,max-age=60' },
     )
@@ -454,46 +369,13 @@ export const metadataMarketplace: Handler = async function (req, res) {
 
     if (!mintAddr) res.send(500, 'Error finding room')
 
-    const tokenLargestAccounts = (await fetchRPC('getTokenLargestAccounts', [
-      mintAddr,
-      { commitment: 'confirmed' },
-    ])) as any[]
-
-    const tokenHolder = tokenLargestAccounts.find(
-      (val) => val.amount == 1,
-    ).address
-
-    const {
-      data: {
-        parsed: {
-          info: { owner: ownerAddr },
-        },
-      },
-    } = (await fetchRPC('getAccountInfo', [
-      tokenHolder,
-      { encoding: 'jsonParsed', commitment: 'confirmed' },
-    ])) as any
-
-    const owner = MARKETPLACES.includes(ownerAddr)
-      ? {
-        market:
-          ownerAddr == SOLANARTPUBKEY
-            ? 'SOLANART'
-            : ownerAddr == MAGICEDENPUBKEY
-              ? 'MAGICEDEN'
-              : ownerAddr == EXCHANGEARTPUBKEY
-                ? 'EXCHANGEART'
-                : ownerAddr == ALPHAARTPUBKEY
-                  ? 'ALPHAART'
-                  : new Error('How?'),
-      }
-      : ownerAddr
+    const ownerAddr = await ownerAddrFromMintAddr(mintAddr);
 
     return res.send(
       200,
       {
         mintAddr,
-        owner,
+        owner: MARKETPLACES[ownerAddr],
       },
       { 'Cache-Control': 'public,max-age=60' },
     )
@@ -507,24 +389,23 @@ export const owned: Handler = async function (req, res) {
   try {
     const { owner } = req.params
 
-    const ownersNFTMintAddrs = await (async () => {
-      if (MARKETPLACES.includes(owner)) return null
+    if (MARKETPLACES[owner] != null) {
+      return res.send(
+        200,
+        { owner },
+        { 'Cache-Control': 'public,max-age=60' }
+      )
+    }
 
-      return await ownedTokenMintAddrs(owner)
-    })()
-    const ownersTwitterHandle = await (async () => {
-      if (MARKETPLACES.includes(owner)) return null
+    const ownersNFTMintAddrs = await ownedTokenMintAddrs(owner) ?? []
+    const ownersTwitterHandle = await ownedTwitterHandle(owner)
 
-      return await ownedTwitterHandle(owner)
-    })()
+    const ownersResidences = {};
 
-    const ownersResidences = []
-
-    const idFromMintAddrLocal = await idFromMintAddr();
+    const idFromMintAddrLocal = await idFromMintAddr()
 
     for (const mintAddr of ownersNFTMintAddrs ?? []) {
-      if (idFromMintAddrLocal[mintAddr])
-        ownersResidences.push([mintAddr, await Residence.find(mintAddr)])
+      if (idFromMintAddrLocal[mintAddr]) ownersResidences[mintAddr] = await Residence.find(mintAddr);
     }
 
     return res.send(
@@ -534,9 +415,9 @@ export const owned: Handler = async function (req, res) {
         stored: await Owner.find(owner),
         ownersNFTMintAddrs,
         ownersTwitterHandle,
-        ownersResidences: Object.fromEntries(ownersResidences),
+        ownersResidences,
       },
-      { 'Cache-Control': 'public,max-age=60' },
+      { 'Cache-Control': 'public,max-age=60' }
     )
   } catch (err: any) {
     console.error((err as any).stack.toString());
@@ -594,15 +475,13 @@ export const billboardSave: Handler = async function (req, res) {
   const { encodedMessage, signature, publicKey, billboardImageId } = await req.body() as any;
 
   const isVerified = sign.detached.verify(
-    new Uint8Array(FromBase64(encodedMessage)),
-    new Uint8Array(FromBase64(signature)),
-    new Uint8Array(FromBase64(publicKey)),
+    U8ArrFromB64Str(encodedMessage),
+    U8ArrFromB64Str(signature),
+    U8ArrFromB64Str(publicKey),
   )
   if (!isVerified) return res.send(422, { signature: 'invalid' })
 
-  const rawMessage = new TextDecoder('utf8').decode(
-    new Uint8Array(FromBase64(encodedMessage)),
-  )
+  const rawMessage = UTF8StrFromB64Str(encodedMessage);
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -660,8 +539,7 @@ export const billboardSave: Handler = async function (req, res) {
   if (story != storyParam) return res.send(422, { story: 'invalid' })
   if (room != roomParam) return res.send(422, { room: 'invalid' })
 
-  if (!inSpan(updated_at, MINUTE))
-    return res.send(422, { updated_at: 'invalid' })
+  if (!within(updated_at, MINUTE)) return res.send(422, { updated_at: 'invalid' })
 
   if (!billboardupload) return res.send(422, { billboardupload: 'invalid' })
 
