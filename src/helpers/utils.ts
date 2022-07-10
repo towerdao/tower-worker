@@ -9,6 +9,12 @@ export function BigIntWithBase(value: string, radix: number): bigint {
     return parts.reduce((r, v) => r * factor + BigInt(parseInt(v, radix)), 0n);
 }
 
+export function randomIntFromRange(min: number, max: number) {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 export function padUint8Array(array: Uint8Array, length: number, fill: any): Uint8Array {
     return length > array.length ? new Uint8Array([...new Uint8Array(length - array.length).fill(fill), ...array]) : array;
 }

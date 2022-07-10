@@ -33,6 +33,13 @@ Much of this API codebase is very Tower specific, and if adapted to another web3
     - Gets Residence socialcard from Cloudflare Images
 - `GET /nft/:mintAddr`
     - Gets image and metadata for ***any*** Solana NFT. Useful for any Web3 app
+- `POST /jwt/fromsignedmessage`
+    - Creates JWT from signed message
+- `POST /jwt/fromtransaction/init`
+    - Starts creating JWT from transaction
+- `POST /jwt/fromtransaction/verify`
+    - Finishes creating JWT from transaction
+
 
 ## Usage
 

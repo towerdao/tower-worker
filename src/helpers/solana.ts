@@ -6,7 +6,7 @@ import { U8ArrFromB64Str, U8ArrFromBigInt } from './convert';
 
 import { deserializeUnchecked } from './borsh.bundle.js';
 
-function fetchRPC(method: string, params: any[]): unknown {
+function fetchRPC(method: string, params: any[]): any {
   return fetch('https://towerdao.genesysgo.net/', {
     method: 'POST',
     headers: {
@@ -28,14 +28,13 @@ function fetchRPC(method: string, params: any[]): unknown {
 
       return res.result
     })
-    .then((res) => (Array.isArray(res) ? res : res.value))
 }
 
 export async function ownerAddrFromMintAddr(mintAddr: string): Promise<string> {
-  const tokenLargestAccounts = (await fetchRPC('getTokenLargestAccounts', [
+  const tokenLargestAccounts = await fetchRPC('getTokenLargestAccounts', [
     mintAddr,
     { commitment: 'confirmed' },
-  ])) as any[]
+  ]).then(res => res.value)
 
   const tokenHolder = tokenLargestAccounts.find(
     (val) => val.amount == 1,
@@ -47,16 +46,16 @@ export async function ownerAddrFromMintAddr(mintAddr: string): Promise<string> {
         info: { owner: ownerAddr },
       },
     },
-  } = (await fetchRPC('getAccountInfo', [
+  } = await fetchRPC('getAccountInfo', [
     tokenHolder,
     { encoding: 'jsonParsed', commitment: 'confirmed' },
-  ])) as any
+  ]).then(res => res.value)
 
   return ownerAddr;
 }
 
 export async function ownedTokenMintAddrs(ownerAddr: string): Promise<string[]> {
-  const tokenAccountsByOwner = (await fetchRPC('getTokenAccountsByOwner', [
+  const tokenAccountsByOwner = await fetchRPC('getTokenAccountsByOwner', [
     ownerAddr,
     {
       programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
@@ -64,7 +63,7 @@ export async function ownedTokenMintAddrs(ownerAddr: string): Promise<string[]> 
     {
       encoding: 'jsonParsed',
     },
-  ])) as any
+  ]).then(res => res.value)
 
   return tokenAccountsByOwner
     .map((a: any) => a?.account?.data?.parsed?.info)
@@ -83,7 +82,7 @@ const HEADER_LEN = 96
 export async function ownedTwitterHandle(
   ownerAddr: string,
 ): Promise<string | null> {
-  const filteredAccounts = (await fetchRPC('getProgramAccounts', [
+  const filteredAccounts = await fetchRPC('getProgramAccounts', [
     NAME_PROGRAM_ID,
     {
       encoding: 'base64',
@@ -108,7 +107,7 @@ export async function ownedTwitterHandle(
         },
       ],
     },
-  ])) as any
+  ])
 
   for (const f of filteredAccounts) {
     const parsedData = atob(f?.account?.data[0])
@@ -326,7 +325,7 @@ export async function getNFTMetadataByMintAddress(mintAddr: string): Promise<any
   const { data } = await fetchRPC('getAccountInfo', [
     metadataKey,
     { encoding: 'base64' },
-  ]) as any;
+  ]).then(res => res.value)
 
   const tokenMetadata = await decodeMetadata(U8ArrFromB64Str(data[0]));
 
@@ -340,4 +339,17 @@ export async function getNFTMetadataByMintAddress(mintAddr: string): Promise<any
     console.error((err as any).stack.toString());
     throw new Error(JSON.stringify({ tokenMetadata, failed: true }));
   }
+}
+
+export async function getConfirmedSignaturesForAddress2(publicKey: string) {
+  return await fetchRPC('getConfirmedSignaturesForAddress2', [
+    publicKey
+  ])
+}
+
+export async function getParsedTransaction(signature: string, commitment: "confirmed" | "finalized") {
+  return (await fetchRPC('getTransaction', [
+    signature,
+    { encoding: 'jsonParsed', commitment },
+  ]))
 }

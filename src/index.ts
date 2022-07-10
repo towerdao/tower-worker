@@ -30,4 +30,8 @@ API.add('GET', '/residences/:story/:room/socialcard', Routes.socialcard);
 
 API.add('GET', '/nft/:mintAddr', Routes.getNFTByMintAddress);
 
+API.add('POST', '/jwt/fromsignedmessage', Routes.jwtFromSignedMessage);
+API.add('POST', '/jwt/fromtransaction/init', Routes.jwtFromTransactionInit);
+API.add('POST', '/jwt/fromtransaction/verify', Routes.jwtFromTransactionVerify);
+
 listen(API.run);

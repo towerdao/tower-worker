@@ -9,36 +9,39 @@ import type { Handler } from 'worktop'
 
 import { cloudflareFromId } from './cloudflarefromid'
 import { idFromMintAddr, mintAddrFromId } from './mintaddrfromid'
-import { ownedTokenMintAddrs, ownedTwitterHandle, getNFTMetadataByMintAddress, ownerAddrFromMintAddr } from './helpers/solana'
+import { ownedTokenMintAddrs, ownedTwitterHandle, getNFTMetadataByMintAddress, ownerAddrFromMintAddr, getConfirmedSignaturesForAddress2, getParsedTransaction } from './helpers/solana'
 import { sign } from 'tweetnacl'
 
 import { NONOWORDS } from './nonowords'
 import { MARKETPLACES } from './marketplaces'
 
-import { checkSignerAddr } from './helpers/eth-lite';
-import { within, MINUTE } from './helpers/time';
-import { U8ArrFromB64Str, B58StrFromB64Str, UTF8StrFromB64Str } from './helpers/convert';
+import { checkSignerAddr } from './helpers/eth-lite'
+import { within, MINUTE } from './helpers/time'
+import { U8ArrFromB64Str, B58StrFromB64Str, UTF8StrFromB64Str } from './helpers/convert'
+import { randomIntFromRange } from './helpers/utils'
+
+import jwt from '@tsndr/cloudflare-worker-jwt'
+
+import assert from 'assert'
 
 declare const IMAGE_API_KEY: string;
 declare const RUST_WORKER_SEC_KEY: string;
+declare const JWT_SEC_KEY: string;
 
 export const save: Handler = async function (req, res) {
   const { story: storyParam, room: roomParam } = req.params
   const id = (parseInt(storyParam) - 1) * 20 + (parseInt(roomParam) - 1)
   const mintAddr = (await mintAddrFromId())[id]
 
-  const { encodedMessage, signature, publicKey } = await req.body() as any
+  const { token } = await req.body() as any
 
-  const ownerAddr = B58StrFromB64Str(publicKey);
+  const validtoken = await jwt.verify(token, JWT_SEC_KEY)
+  if (!validtoken) return res.send(422, { token: 'invalid' })
 
-  const isVerified = sign.detached.verify(
-    U8ArrFromB64Str(encodedMessage),
-    U8ArrFromB64Str(signature),
-    U8ArrFromB64Str(publicKey),
-  )
-  if (!isVerified) return res.send(422, { signature: 'invalid' })
+  const { payload } = jwt.decode(token)
 
-  const rawMessage = UTF8StrFromB64Str(encodedMessage);
+  const ownerAddr = payload.publicKey
+  const rawMessage = payload.message
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -225,16 +228,15 @@ export const save: Handler = async function (req, res) {
 export const updateOwner: Handler = async function (req, res) {
   const { owner: ownerParam } = req.params
 
-  const { encodedMessage, signature, publicKey, ethereum } = await req.body() as any;
+  const { token, ethereum } = await req.body() as any
 
-  const isVerified = sign.detached.verify(
-    U8ArrFromB64Str(encodedMessage),
-    U8ArrFromB64Str(signature),
-    U8ArrFromB64Str(publicKey),
-  )
-  if (!isVerified) return res.send(422, { signature: 'invalid' })
+  const validtoken = await jwt.verify(token, JWT_SEC_KEY)
+  if (!validtoken) return res.send(422, { token: 'invalid' })
 
-  const rawMessage = UTF8StrFromB64Str(encodedMessage);
+  const { payload } = jwt.decode(token)
+
+  const ownerAddr = payload.publicKey
+  const rawMessage = payload.message
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -260,7 +262,7 @@ export const updateOwner: Handler = async function (req, res) {
 
   if (!within(updated_at, MINUTE)) return res.send(422, { updated_at: 'invalid' })
 
-  if (ownerParam != B58StrFromB64Str(publicKey)) return res.send(422, { publicKey: 'invalid' })
+  if (ownerParam != ownerAddr) return res.send(422, { publicKey: 'invalid' })
 
   const result = await Owner.save({
     ownerAddr: ownerParam,
@@ -472,16 +474,14 @@ export const billboardSave: Handler = async function (req, res) {
   const id = (parseInt(storyParam) - 1) * 20 + (parseInt(roomParam) - 1)
   const mintAddr = (await mintAddrFromId())[id]
 
-  const { encodedMessage, signature, publicKey, billboardImageId } = await req.body() as any;
+  const { token, billboardImageId } = await req.body() as any
 
-  const isVerified = sign.detached.verify(
-    U8ArrFromB64Str(encodedMessage),
-    U8ArrFromB64Str(signature),
-    U8ArrFromB64Str(publicKey),
-  )
-  if (!isVerified) return res.send(422, { signature: 'invalid' })
+  const validtoken = await jwt.verify(token, JWT_SEC_KEY)
+  if (!validtoken) return res.send(422, { token: 'invalid' })
 
-  const rawMessage = UTF8StrFromB64Str(encodedMessage);
+  const { payload } = jwt.decode(token)
+
+  const rawMessage = payload.message
 
   try {
     JSON.parse(rawMessage) //Parsing raw message should throw an error
@@ -595,6 +595,104 @@ export const getNFTByMintAddress: Handler = async function (req, res) {
 
     return res.send(200, newNft);
   } catch (err: any) {
+    console.error((err as any).stack.toString());
+    return res.send(500, err.toString())
+  }
+}
+
+export const jwtFromSignedMessage: Handler = async function (req, res) {
+  const { encodedMessage, signedMessage, publicKey } = await req.body() as any
+
+  const isVerified = sign.detached.verify(
+    U8ArrFromB64Str(encodedMessage),
+    U8ArrFromB64Str(signedMessage),
+    U8ArrFromB64Str(publicKey),
+  )
+  if (!isVerified) return res.send(422, { signedMessage: 'invalid' })
+
+  const token = await jwt.sign({
+    message: UTF8StrFromB64Str(encodedMessage),
+    publicKey: B58StrFromB64Str(publicKey),
+    exp: Math.floor(Date.now() / 1000) + (60 * 2), // Expires: Now + 2m
+  }, JWT_SEC_KEY)
+
+  res.send(200, { token });
+}
+
+export const jwtFromTransactionInit: Handler = async function (req, res) {
+  try {
+    const { encodedMessage, publicKey } = await req.body() as any
+
+    const sigs = await getConfirmedSignaturesForAddress2(B58StrFromB64Str(publicKey))
+    const lamports = randomIntFromRange(100000, 999999)
+
+    const token = await jwt.sign({
+      unverifiedMessage: UTF8StrFromB64Str(encodedMessage),
+      publicKey: B58StrFromB64Str(publicKey),
+      prevSig: sigs && sigs.length > 0 ? sigs[0].signature : null,
+      lamports: lamports,
+      exp: Math.floor(Date.now() / 1000) + (60 * 2), // Expires: Now + 2m
+    }, JWT_SEC_KEY)
+
+    res.send(200, { token, lamports });
+  } catch (err) {
+    console.error((err as any).stack.toString());
+    return res.send(500, err.toString())
+  }
+}
+
+export const jwtFromTransactionVerify: Handler = async function (req, res) {
+  try {
+    const { initToken, signature } = await req.body() as any
+
+    const validtoken = await jwt.verify(initToken, JWT_SEC_KEY)
+    if (!validtoken) return res.send(422, { token: 'invalid' })
+
+    const { payload } = jwt.decode(initToken)
+
+    const sigs = await getConfirmedSignaturesForAddress2(payload.publicKey)
+
+    assert(sigs.length > 0);
+    assert(sigs[0].signature === signature);
+
+    if (!payload.prevSig) {
+      assert(sigs.length === 1);
+    } else {
+      assert(sigs[1].signature === payload.prevSig);
+    }
+
+    const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111'
+
+    const tx = await getParsedTransaction(signature, 'confirmed');
+    assert(tx);
+
+    assert(tx.transaction.signatures.length === 1);
+    assert(tx.transaction.signatures[0] === signature);
+    assert(tx.transaction.message.accountKeys.length === 2);
+    assert(tx.transaction.message.accountKeys[0].signer);
+    assert(tx.transaction.message.accountKeys[0].writable);
+    assert(tx.transaction.message.accountKeys[0].pubkey.toString() === payload.publicKey);
+    assert(!tx.transaction.message.accountKeys[1].signer);
+    assert(!tx.transaction.message.accountKeys[1].writable);
+    assert(tx.transaction.message.accountKeys[1].pubkey === SYSTEM_PROGRAM_ID);
+    assert(tx.transaction.message.instructions.length === 1);
+
+    const instr = tx.transaction.message.instructions[0];
+    assert(instr.programId === SYSTEM_PROGRAM_ID);
+    assert(instr.program === 'system');
+    assert(instr.parsed.type === 'transfer');
+    assert(instr.parsed.info.destination === payload.publicKey);
+    assert(instr.parsed.info.lamports === payload.lamports);
+    assert(instr.parsed.info.source === payload.publicKey);
+
+    const token = await jwt.sign({
+      message: payload.unverifiedMessage,
+      publicKey: payload.publicKey,
+      exp: Math.floor(Date.now() / 1000) + (60 * 2), // Expires: Now + 2m
+    }, JWT_SEC_KEY)
+
+    res.send(200, { token });
+  } catch (err) {
     console.error((err as any).stack.toString());
     return res.send(500, err.toString())
   }

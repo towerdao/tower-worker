@@ -22,3 +22,4 @@ format = "service-worker"
 # [secrets]
 # IMAGE_API_KEY
 # RUST_WORKER_SEC_KEY
+# JWT_SEC_KEY

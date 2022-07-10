@@ -44,6 +44,7 @@
     "worktop": "^0.7.3"
   },
   "dependencies": {
+    "@tsndr/cloudflare-worker-jwt": "^2.0.0",
     "base58-universal": "^1.0.0"
   }
 }
